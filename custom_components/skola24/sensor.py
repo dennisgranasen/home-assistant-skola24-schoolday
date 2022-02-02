@@ -12,9 +12,9 @@ import voluptuous as vol
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_component import EntityComponent
-from homeassistant.components.sensor import PLATFORM_SCHEMA
 from homeassistant.components.rest import RestData
-from homeassistant.const import (CONF_NAME)
+from homeassistant.components.binary_sensor import PLATFORM_SCHEMA, BinarySensorEntity
+from homeassistant.const import CONF_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,10 +87,10 @@ class schoolDay():
     def __str__(self):
         return str(self.weekNumber) + ":" + str(self.dayNumber) + " " + self.startTime + " -> " + self.endTime
 
-class entityRepresentation(Entity):
+class entityRepresentation(BinarySensorEntity):
     def __init__(self, hass, config):
-        self._name       = "skola24_"+ config.get(CONF_SENSORNAME)
-        self._unit       = "time"
+        self._name       = config.get(CONF_SENSORNAME)
+        self._unit       = ""
         self._state      = "Unavailable"
         self._attributes = {}
         self.hass        = hass
@@ -98,6 +98,8 @@ class entityRepresentation(Entity):
         self._className  = config.get(CONF_CLASSNAME) if config.get(CONF_CLASSNAME) else None
         self._SSN        = config.get(CONF_SSN) if config.get(CONF_SSN) else None
         self._apiHost    = config.get(CONF_URL)
+
+        #self.entity_id = "skola24." + self._className
 
         weekNow   = datetime.today().isocalendar()[1]        
         self.week = range(weekNow-1,weekNow+1)
@@ -113,12 +115,21 @@ class entityRepresentation(Entity):
     @property
     def name(self):
         return self._name
+        
+    @property
+    def unique_id(self) -> str:
+        """Return unique ID."""
+        return "_" + self._className
 
     @property
     def state(self):
         if self._state is not None:
             return self._state
         return None
+        
+    @property
+    def is_on(self):
+        return self._state
 
     @property
     def extra_state_attributes(self):
@@ -278,9 +289,15 @@ class entityRepresentation(Entity):
         )
 
     def schoolDayToday(self, schoolDays):
-        _now = datetime.today().isocalendar()
-        weekNow = _now[1]
-        dayNow = _now[2]
+        return self.checkSchoolDay(schoolDays, datetime.today())
+
+    def schoolDayTomorrow(self, schoolDays):
+        return self.checkSchoolDay(schoolDays, datetime.today() + timedelta(days=1))
+
+    def checkSchoolDay(self, schoolDays, d):    
+        _d = d.isocalendar()
+        weekNow = _d[1]
+        dayNow = _d[2]
         for day in schoolDays:
             if day.weekNumber == weekNow and day.dayNumber == dayNow: 
                 return day
@@ -301,10 +318,28 @@ class entityRepresentation(Entity):
         schedule = await self.getTimeTable(hass, renderKey, selection, selectionTypeId, guid)
         schoolDays = self.parse(schedule)
         schoolDayToday = self.schoolDayToday(schoolDays)
+        schoolDayTomorrow = self.schoolDayTomorrow(schoolDays)
 
-        self.state = schoolDayToday != None
-        if (self.state):
-            self._attributes.update({'start': schoolDayToday.startTime, 'end': schoolDayToday.endTime})
+
+        if schoolDayToday is None:
+            start = None
+            end = None
         else:
-            self._attributes.update({'start': None, 'end': None})
+            start = schoolDayToday.startTime
+            end = schoolDayToday.endTime
+            
+        if schoolDayTomorrow is None:
+            tomorrow = False
+            tomorrowStart = None
+            tomorrowEnd = None
+        else:
+            tomorrow = True
+            tomorrowStart = schoolDayTomorrow.startTime
+            tomorrowEnd = schoolDayTomorrow.endTime
         
+        self._state = schoolDayToday is not None
+        self._attributes.update({'tomorrow': tomorrow, 
+                                    'tomorrowStart': tomorrowStart, 
+                                    'tomorrowEnd': tomorrowEnd, 
+                                    'start': start, 'end': end})
+
