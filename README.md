@@ -1,1 +1,1 @@
-# home-assistant-skola24-to-ical
+# home-assistant-skola24-schoolday

@@ -19,13 +19,13 @@ from homeassistant.const import (CONF_NAME)
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME            = 'Skola24'
-DEFAULT_INTERVAL        = 86400 # once a day
+#DEFAULT_INTERVAL        = 86400 # once a day
+DEFAULT_INTERVAL        = 18000 # every five hours
 HEADERS                 = {"X-Scope": "8a22163c-8662-4535-9050-bc5e1923df48", "Content-Type":"application/json"}
 CONF_URL                = 'url'
 CONF_SCHOOL             = 'school'
 CONF_SSN                = 'pin'
 CONF_CLASSNAME          = 'class'
-CONF_LOCALPATH          = 'path'
 CONF_SENSORNAME         = 'name'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
@@ -33,7 +33,6 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_CLASSNAME): cv.string,
     vol.Optional(CONF_SSN): cv.string,
     vol.Required(CONF_URL, default=0): cv.string,
-    vol.Required(CONF_LOCALPATH, default=0): cv.string,
     vol.Required(CONF_SENSORNAME, default=0): cv.string,
 })
 SCAN_INTERVAL = timedelta(minutes=DEFAULT_INTERVAL)
@@ -56,6 +55,38 @@ async def add_sensors(
     sensors.append(entityRepresentation(hass, config))
     async_add_devices(sensors, True)
 
+class schoolDay(): 
+    def __init__(self, dayNumber, weekNumber):
+        self._dayNumber = dayNumber
+        self._weekNumber = weekNumber
+        self._startTime = None
+        self._endTime = None
+    
+    @property
+    def dayNumber(self):
+        return self._dayNumber
+
+    @property
+    def weekNumber(self):
+        return self._weekNumber
+
+    @property
+    def startTime(self):
+        return self._startTime
+
+    @property
+    def endTime(self):
+        return self._endTime
+
+    def addLesson(self,lesson):
+        if self.startTime == None or self.startTime > lesson['timeStart']:
+            self._startTime = lesson['timeStart']
+        if self.endTime == None or self.endTime < lesson['timeEnd']:
+            self._endTime = lesson['timeEnd']
+    
+    def __str__(self):
+        return str(self.weekNumber) + ":" + str(self.dayNumber) + " " + self.startTime + " -> " + self.endTime
+
 class entityRepresentation(Entity):
     def __init__(self, hass, config):
         self._name       = "skola24_"+ config.get(CONF_SENSORNAME)
@@ -67,10 +98,14 @@ class entityRepresentation(Entity):
         self._className  = config.get(CONF_CLASSNAME) if config.get(CONF_CLASSNAME) else None
         self._SSN        = config.get(CONF_SSN) if config.get(CONF_SSN) else None
         self._apiHost    = config.get(CONF_URL)
-        self._localPath  = config.get(CONF_LOCALPATH)
 
-        weekNow   = datetime.today().isocalendar()[1]
-        self.week = range(weekNow-2, weekNow+4)
+        weekNow   = datetime.today().isocalendar()[1]        
+        self.week = range(weekNow-1,weekNow+1)
+        ''' To get the entire semester, use below
+        if weekNow < 26: 
+            self.week = range(weekNow-1,weekNow+1)
+        else:
+            self.week = range(27, 52)'''
         self.year = datetime.today().year
 
         self.selection = None
@@ -131,7 +166,7 @@ class entityRepresentation(Entity):
                 match=s["unitGuid"]
 
         if match:
-            return match;
+            return match
         else:
             if len(listOfSchools) > 0:
                 _LOGGER.error('Please provide one if following')
@@ -160,7 +195,7 @@ class entityRepresentation(Entity):
                 match=c["groupGuid"]
 
         if match:
-            return match;
+            return match
         else:
             if len(listOfClasses) > 0:
                 _LOGGER.error('Please provide one of the following:')
@@ -222,32 +257,16 @@ class entityRepresentation(Entity):
                     lessons.append(lesson)
         return lessons
 
-    def icsLetter(self, data):
-        numberOfEvents = 0
-        f = open(self._localPath, "w")
-        f.write('BEGIN:VCALENDAR'+"\n")
-        f.write('VERSION:2.0'+"\n")
-        f.write('CALSCALE:GREGORIAN'+"\n")
+    def parse(self, data):
+        schoolDays = []
+        currentDay = None
         for lesson in data:
-          numberOfEvents = numberOfEvents+1
-          self.icsEvent(lesson, f)
-        f.write('END:VCALENDAR')
-        f.close()
-        return numberOfEvents
+            if currentDay == None or currentDay.dayNumber != lesson['dayOfWeekNumber'] or currentDay.weekNumber != lesson['weekOfYear']:
+                currentDay = schoolDay(lesson['dayOfWeekNumber'],lesson['weekOfYear'])
+                schoolDays.append(currentDay)
+            currentDay.addLesson(lesson)
 
-    def icsEvent(self, lesson, f):
-        if lesson['timeStart'] is not None:
-            f.write('BEGIN:VEVENT'+"\n")
-            f.write('SUMMARY:' + lesson['texts'][0]+"\n")
-            f.write('DTSTART;TZID=Europe/Berlin:' +
-                self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeStart'], lesson["weekOfYear"])+"\n")
-            f.write('DTEND;TZID=Europe/Berlin:' +
-                self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeEnd'], lesson["weekOfYear"])+"\n")
-            f.write('LOCATION:' + lesson['texts'][2]+"\n")
-            f.write('DESCRIPTION:' + lesson['texts'][0]+"\n")
-            f.write('STATUS:CONFIRMED'+"\n")
-            f.write('SEQUENCE:3'+"\n")
-            f.write('END:VEVENT'+"\n")
+        return schoolDays
 
     def getDateTime(self, dow, time, week):
         return datetime.strftime(
@@ -257,6 +276,15 @@ class entityRepresentation(Entity):
             ),
             "%Y%m%dT%H%M%S"
         )
+
+    def schoolDayToday(self, schoolDays):
+        _now = datetime.today().isocalendar()
+        weekNow = _now[1]
+        dayNow = _now[2]
+        for day in schoolDays:
+            if day.weekNumber == weekNow and day.dayNumber == dayNow: 
+                return day
+        return None
 
     async def async_update(self):
         hass = self.hass
@@ -271,7 +299,12 @@ class entityRepresentation(Entity):
             selectionTypeId = 0
         renderKey = await self.getRenderKey(hass)
         schedule = await self.getTimeTable(hass, renderKey, selection, selectionTypeId, guid)
-        numberOfEvents = self.icsLetter(schedule)
+        schoolDays = self.parse(schedule)
+        schoolDayToday = self.schoolDayToday(schoolDays)
 
-        self._state = datetime.now()
-        self._attributes.update({'numberOfEvents': numberOfEvents})
+        self.state = schoolDayToday != None
+        if (self.state):
+            self._attributes.update({'start': schoolDayToday.startTime, 'end': schoolDayToday.endTime})
+        else:
+            self._attributes.update({'start': None, 'end': None})
+        

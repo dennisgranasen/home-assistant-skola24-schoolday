@@ -1,1 +1,1 @@
-"""Skola24 schedule to icalendar."""
+"""Skola24 schedule to schooldays."""

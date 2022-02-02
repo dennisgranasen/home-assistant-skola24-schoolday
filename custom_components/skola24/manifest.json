@@ -1,11 +1,11 @@
 {
   "domain": "skola24",
-  "name": "skola24",
+  "name": "skola24 schoolday",
   "after_dependencies": ["http", "rest"],
-  "codeowners": ["@iesus"],
+  "codeowners": ["@dennisgranasen"],
   "requirements": [],
-  "issue_tracker": "https://github.com/TekniskSupport/home-assistant-skola24-to-ical/issues",
-  "documentation": "https://github.com/TekniskSupport/home-assistant-skola24-to-ical/blob/master/readme.md",
+  "issue_tracker": "https://github.com/dennisgranasen/home-assistant-skola24-schoolday/issues",
+  "documentation": "https://github.com/dennisgranasen/home-assistant-skola24-schoolday/blob/master/readme.md",
   "version": "v0.0.1",
   "iot_class": "cloud_polling"
 }
