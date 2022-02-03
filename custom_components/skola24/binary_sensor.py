@@ -20,13 +20,14 @@ _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_NAME            = 'Skola24'
 #DEFAULT_INTERVAL        = 86400 # once a day
-DEFAULT_INTERVAL        = 18000 # every five hours
+#DEFAULT_INTERVAL        = 18000 # every five hours
 HEADERS                 = {"X-Scope": "8a22163c-8662-4535-9050-bc5e1923df48", "Content-Type":"application/json"}
 CONF_URL                = 'url'
 CONF_SCHOOL             = 'school'
 CONF_SSN                = 'pin'
 CONF_CLASSNAME          = 'class'
 CONF_SENSORNAME         = 'name'
+CONF_OFFSET             = 'offset'
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Required(CONF_SCHOOL, default=0): cv.string,
@@ -34,8 +35,9 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_SSN): cv.string,
     vol.Required(CONF_URL, default=0): cv.string,
     vol.Required(CONF_SENSORNAME, default=0): cv.string,
+    vol.Optional(CONF_OFFSET, default=0): vol.Coerce(int)
 })
-SCAN_INTERVAL = timedelta(minutes=DEFAULT_INTERVAL)
+#SCAN_INTERVAL = timedelta(minutes=DEFAULT_INTERVAL)
 
 async def async_setup_platform(hass, config, async_add_devices, discovery_info=None):
     await add_sensors(
@@ -52,7 +54,10 @@ async def add_sensors(
         discovery_info=None
     ):
     sensors = []
-    sensors.append(entityRepresentation(hass, config))
+    er = entityRepresentation(hass, config)
+    await er.loadData(hass)
+    sensors.append(er)
+
     async_add_devices(sensors, True)
 
 class schoolDay(): 
@@ -97,18 +102,20 @@ class entityRepresentation(BinarySensorEntity):
         self._school     = config.get(CONF_SCHOOL)
         self._className  = config.get(CONF_CLASSNAME) if config.get(CONF_CLASSNAME) else None
         self._SSN        = config.get(CONF_SSN) if config.get(CONF_SSN) else None
+        self._offset     = config.get(CONF_OFFSET)
         self._apiHost    = config.get(CONF_URL)
+        self._schoolDays = []
 
         #self.entity_id = "skola24." + self._className
 
         weekNow   = datetime.today().isocalendar()[1]        
-        self.week = range(weekNow-1,weekNow+1)
-        ''' To get the entire semester, use below
+        #self.week = range(weekNow-1,weekNow+1)
+        # To get the entire semester, use below
         if weekNow < 26: 
-            self.week = range(weekNow-1,weekNow+1)
+            self.week = range(weekNow,26)
         else:
-            self.week = range(27, 52)'''
-        self.year = datetime.today().year
+            self.week = range(weekNow,52)
+        self.year = (datetime.today() + timedelta(days=self._offset)).year
 
         self.selection = None
 
@@ -157,6 +164,20 @@ class entityRepresentation(BinarySensorEntity):
         if data is None:
             data="null"
         return requests.post(url, json=data, headers=HEADERS)
+
+    async def loadData(self, hass): 
+        guid = await self.getSchool(hass)
+        if not self._SSN and not self._className:
+            _LOGGER.error("[ERROR]\tYou must define one of SSN or ClassName")
+        if self._SSN:
+            selection = await self.getEncryptedSelection(hass, self._SSN)
+            selectionTypeId = 4
+        else:
+            selection = await self.getClass(hass, guid)
+            selectionTypeId = 0
+        renderKey = await self.getRenderKey(hass)
+        schedule = await self.getTimeTable(hass, renderKey, selection, selectionTypeId, guid)
+        self._schoolDays = self.parse(schedule)
 
     async def getSchool(self, hass):
         match = None
@@ -288,58 +309,25 @@ class entityRepresentation(BinarySensorEntity):
             "%Y%m%dT%H%M%S"
         )
 
-    def schoolDayToday(self, schoolDays):
-        return self.checkSchoolDay(schoolDays, datetime.today())
-
-    def schoolDayTomorrow(self, schoolDays):
-        return self.checkSchoolDay(schoolDays, datetime.today() + timedelta(days=1))
-
-    def checkSchoolDay(self, schoolDays, d):    
-        _d = d.isocalendar()
-        weekNow = _d[1]
-        dayNow = _d[2]
-        for day in schoolDays:
+    def checkSchoolDay(self):    
+        d = (datetime.today() + timedelta(days=self._offset)).isocalendar()
+        weekNow = d[1]
+        dayNow = d[2]
+        for day in self._schoolDays:
             if day.weekNumber == weekNow and day.dayNumber == dayNow: 
                 return day
         return None
 
     async def async_update(self):
-        hass = self.hass
-        guid = await self.getSchool(hass)
-        if not self._SSN and not self._className:
-            _LOGGER.error("[ERROR]\tYou must define one of SSN or ClassName")
-        if self._SSN:
-            selection = await self.getEncryptedSelection(hass, self._SSN)
-            selectionTypeId = 4
-        else:
-            selection = await self.getClass(hass, guid)
-            selectionTypeId = 0
-        renderKey = await self.getRenderKey(hass)
-        schedule = await self.getTimeTable(hass, renderKey, selection, selectionTypeId, guid)
-        schoolDays = self.parse(schedule)
-        schoolDayToday = self.schoolDayToday(schoolDays)
-        schoolDayTomorrow = self.schoolDayTomorrow(schoolDays)
+        schoolDay = self.checkSchoolDay()
 
-
-        if schoolDayToday is None:
+        if schoolDay is None:
             start = None
             end = None
         else:
-            start = schoolDayToday.startTime
-            end = schoolDayToday.endTime
-            
-        if schoolDayTomorrow is None:
-            tomorrow = False
-            tomorrowStart = None
-            tomorrowEnd = None
-        else:
-            tomorrow = True
-            tomorrowStart = schoolDayTomorrow.startTime
-            tomorrowEnd = schoolDayTomorrow.endTime
-        
-        self._state = schoolDayToday is not None
-        self._attributes.update({'tomorrow': tomorrow, 
-                                    'tomorrowStart': tomorrowStart, 
-                                    'tomorrowEnd': tomorrowEnd, 
-                                    'start': start, 'end': end})
+            start = schoolDay.startTime
+            end = schoolDay.endTime
+           
+        self._state = schoolDay is not None
+        self._attributes.update({'start': start, 'end': end})
 
