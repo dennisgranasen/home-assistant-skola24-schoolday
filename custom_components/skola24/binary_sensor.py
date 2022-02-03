@@ -126,7 +126,7 @@ class entityRepresentation(BinarySensorEntity):
     @property
     def unique_id(self) -> str:
         """Return unique ID."""
-        return "_" + self._className
+        return "_" + self._className + "_" + self._offset
 
     @property
     def state(self):
