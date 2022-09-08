@@ -371,10 +371,12 @@ class entityRepresentation(BinarySensorEntity):
         if schoolDay is None:
             start = None
             end = None
+            lessons = []
         else:
             start = schoolDay.startTime
             end = schoolDay.endTime
+            lessons = schoolDay.lessons
            
         self._state = schoolDay is not None
-        self._attributes.update({'start': start, 'end': end, 'lessons': schoolDay.lessons})
+        self._attributes.update({'start': start, 'end': end, 'lessons': lessons})
 
