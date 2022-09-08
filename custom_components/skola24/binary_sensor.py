@@ -60,12 +60,33 @@ async def add_sensors(
 
     async_add_devices(sensors, True)
 
+class lesson: 
+    def __init__(self, lesson_data):
+        self._data = lesson_data
+
+    @property
+    def startTime(self): return self._data['timeStart']
+
+    @property
+    def endTime(self): return self._data['timeEnd']
+
+    @property
+    def cls(self): return self._data['class']
+
+    #@property
+    #def room(self): return self._data['room']
+
+    @property
+    def teacher(self): return self._data['teacher']
+
+
 class schoolDay(): 
     def __init__(self, dayNumber, weekNumber):
         self._dayNumber = dayNumber
         self._weekNumber = weekNumber
         self._startTime = None
         self._endTime = None
+        self._lessons = []
     
     @property
     def dayNumber(self):
@@ -83,11 +104,20 @@ class schoolDay():
     def endTime(self):
         return self._endTime
 
-    def addLesson(self,lesson):
-        if self.startTime == None or self.startTime > lesson['timeStart']:
-            self._startTime = lesson['timeStart']
-        if self.endTime == None or self.endTime < lesson['timeEnd']:
-            self._endTime = lesson['timeEnd']
+    @property
+    def firstLesson(self):
+        return min(self._lessons, key=lambda x: x.startTime)
+
+    def lastLesson(self):
+        return max(self._lessons, key=lambda x: x.endTime)
+
+    def addLesson(self,lesson_data):
+        l = lesson(lesson_data)
+        self._lessons.append(l)
+        if self.startTime == None or self.startTime > l.startTime:
+            self._startTime = l.startTime
+        if self.endTime == None or self.endTime < l.endTime:
+            self._endTime = l.endTime
     
     def __str__(self):
         return str(self.weekNumber) + ":" + str(self.dayNumber) + " " + self.startTime + " -> " + self.endTime
@@ -346,5 +376,5 @@ class entityRepresentation(BinarySensorEntity):
             end = schoolDay.endTime
            
         self._state = schoolDay is not None
-        self._attributes.update({'start': start, 'end': end})
+        self._attributes.update({'start': start, 'end': end, 'lessons': schoolDay.lessons})
 
