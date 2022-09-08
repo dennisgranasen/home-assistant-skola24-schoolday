@@ -297,8 +297,25 @@ class entityRepresentation(BinarySensorEntity):
                 currentDay = schoolDay(lesson['dayOfWeekNumber'],lesson['weekOfYear'])
                 schoolDays.append(currentDay)
             currentDay.addLesson(lesson)
-
         return schoolDays
+
+
+    def icsEvent(self, lesson, f):
+        if lesson['timeStart'] is not None:
+            f.write('BEGIN:VEVENT'+"\n")
+            f.write('SUMMARY:' + lesson['texts'][0]+"\n")
+            f.write('DTSTART;TZID=Europe/Berlin:' +
+                self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeStart'], lesson["weekOfYear"])+"\n")
+            f.write('DTEND;TZID=Europe/Berlin:' +
+                self.getDateTime(lesson['dayOfWeekNumber'], lesson['timeEnd'], lesson["weekOfYear"])+"\n")
+            try:
+                f.write('LOCATION:' + lesson['texts'][2] +"\n")
+            except:
+                pass
+            f.write('DESCRIPTION:' + lesson['texts'][0]+"\n")
+            f.write('STATUS:CONFIRMED'+"\n")
+            f.write('SEQUENCE:3'+"\n")
+            f.write('END:VEVENT'+"\n")
 
     def getDateTime(self, dow, time, week):
         return datetime.strftime(
